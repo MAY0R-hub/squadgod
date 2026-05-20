@@ -389,7 +389,9 @@ function WarRoom({ gaffer, onResult }) {
             <div style={{ background: "rgba(0,255,135,0.06)", border: "1px solid rgba(0,255,135,0.2)", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" }}>
               <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.6rem", color: "#00FF87", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "0.75rem" }}>Formation Selected</div>
               <div style={{ fontFamily: "'Anton', sans-serif", fontSize: "2.5rem", color: "#fff", letterSpacing: "0.05em" }}>{output.tactic}</div>
-              <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "0.9rem", color: "rgba(255,255,255,0.5)", marginTop: "0.25rem" }}>High press · Wide wings · Compact midfield</div>
+              <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "0.9rem", color: "rgba(255,255,255,0.5)", marginTop: "0.25rem" }}>
+                {output.tacticReason || "High press · Wide wings · Compact midfield"}
+              </div>
             </div>
 
             <div style={{ background: "rgba(255,215,0,0.06)", border: "1px solid rgba(255,215,0,0.2)", borderRadius: "12px", padding: "1.25rem", marginBottom: "1rem" }}>

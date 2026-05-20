@@ -13,37 +13,32 @@ const TRASH_TALKS = [
   "We don't predict wins. We manifest them. Onchain.",
 ];
 
-router.post("/think", async (req, res) => {
-  const { gafferName, nationName, prompt } = req.body;
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+router.post("/", async (req, res) => {
+  const { prompt, gafferName, nationName } = req.body;
 
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return res.status(400).json({ error: "prompt is required" });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
-  }
-
   try {
-    const client = new Anthropic({ apiKey });
-
     const message = await client.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 256,
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
       messages: [
         {
           role: "user",
-          content: `You are ${gafferName || "The Gaffer"}, an aggressive AI football manager for ${nationName || "your nation"}.
+          content: `You are ${gafferName}, an aggressive AI football manager for ${nationName}.
 
 The user said: "${prompt}"
 
-Respond ONLY with a JSON object, no markdown, no backticks, no explanation:
+Respond ONLY with a JSON object, no markdown, no backticks:
 {
   "tactic": "one of: 4-3-3, 4-4-2, 3-5-2, 4-2-3-1, 5-3-2, 3-4-3",
-  "taunt": "one savage trash-talk line max 12 words, football culture, onchain reference",
+  "taunt": "one savage trash-talk line max 12 words, football culture",
   "stakeAmt": "a number between 10 and 80",
-  "tacticReason": "one sentence why this formation fits the prompt"
+  "tacticReason": "one sentence why this formation fits"
 }`,
         },
       ],

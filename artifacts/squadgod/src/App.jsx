@@ -313,7 +313,7 @@ function WarRoom({ gaffer, onResult }) {
     setThinking(true);
     setOutput(null);
     try {
-      const res = await fetch("/api/gaffer/think", {
+      const res = await fetch("/api/gaffer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

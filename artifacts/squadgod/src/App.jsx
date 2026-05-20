@@ -308,17 +308,30 @@ function WarRoom({ gaffer, onResult }) {
   const [staking, setStaking] = useState(false);
   const [staked, setStaked] = useState(false);
 
-  const generateOutput = () => {
+  const generateOutput = async () => {
     if (!prompt.trim()) return;
     setThinking(true);
     setOutput(null);
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/gaffer/think", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gafferName: gaffer.name,
+          nationName: gaffer.nation.name,
+          prompt,
+        }),
+      });
+      if (!res.ok) throw new Error("API error");
+      const data = await res.json();
+      setOutput(data);
+    } catch {
       const tactic = TACTICS[Math.floor(Math.random() * TACTICS.length)];
       const taunt = TRASH_TALKS[Math.floor(Math.random() * TRASH_TALKS.length)];
-      const stakeAmt = (Math.random() * 40 + 10).toFixed(1);
-      setOutput({ tactic, taunt, stakeAmt });
+      setOutput({ tactic, taunt, stakeAmt: "25.0", tacticReason: "Classic formation, maximum control." });
+    } finally {
       setThinking(false);
-    }, 2000);
+    }
   };
 
   const handleStake = () => {

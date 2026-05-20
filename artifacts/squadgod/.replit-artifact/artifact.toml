@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "SquadGod"
+version = "1.0.0"
+id = "artifacts/squadgod"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22018
+
+[services.development]
+run = "pnpm --filter @workspace/squadgod run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/squadgod", "run", "build" ]
+publicDir = "artifacts/squadgod/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22018"
+BASE_PATH = "/"

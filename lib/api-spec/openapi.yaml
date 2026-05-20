@@ -1,22 +1,28 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: SquadGod API — futuristic football AI platform
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: players
+    description: Player operations
+  - name: squads
+    description: Squad operations
+  - name: matches
+    description: Match prediction operations
+  - name: analysis
+    description: AI analysis operations
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +30,442 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /players:
+    get:
+      operationId: listPlayers
+      tags: [players]
+      summary: List players with optional search and filter
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: position
+          in: query
+          schema:
+            type: string
+        - name: minRating
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Player"
+
+  /players/top-rated:
+    get:
+      operationId: listTopRatedPlayers
+      tags: [players]
+      summary: Get top rated players
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        "200":
+          description: Top players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Player"
+
+  /players/{id}:
+    get:
+      operationId: getPlayer
+      tags: [players]
+      summary: Get a player by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "404":
+          description: Player not found
+
+  /squads:
+    get:
+      operationId: listSquads
+      tags: [squads]
+      summary: List all squads
+      responses:
+        "200":
+          description: Squad list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Squad"
+    post:
+      operationId: createSquad
+      tags: [squads]
+      summary: Create a new squad
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SquadInput"
+      responses:
+        "201":
+          description: Squad created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Squad"
+
+  /squads/overview:
+    get:
+      operationId: getSquadsOverview
+      tags: [squads]
+      summary: Get aggregated stats across all squads
+      responses:
+        "200":
+          description: Overview stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SquadsOverview"
+
+  /squads/{id}:
+    get:
+      operationId: getSquad
+      tags: [squads]
+      summary: Get a squad by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Squad found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Squad"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateSquad
+      tags: [squads]
+      summary: Update a squad
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SquadUpdate"
+      responses:
+        "200":
+          description: Squad updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Squad"
+    delete:
+      operationId: deleteSquad
+      tags: [squads]
+      summary: Delete a squad
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /squads/{id}/players:
+    post:
+      operationId: addPlayerToSquad
+      tags: [squads]
+      summary: Add a player to a squad
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SquadPlayerInput"
+      responses:
+        "201":
+          description: Player added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Squad"
+
+  /squads/{id}/players/{playerId}:
+    delete:
+      operationId: removePlayerFromSquad
+      tags: [squads]
+      summary: Remove a player from a squad
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: playerId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Squad"
+
+  /squads/{id}/analysis:
+    get:
+      operationId: getSquadAnalysis
+      tags: [analysis]
+      summary: Get AI analysis for a squad
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: AI analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SquadAnalysis"
+
+  /matches:
+    get:
+      operationId: listMatches
+      tags: [matches]
+      summary: List match predictions
+      responses:
+        "200":
+          description: Match list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MatchPrediction"
+    post:
+      operationId: predictMatch
+      tags: [matches]
+      summary: Generate a match prediction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MatchInput"
+      responses:
+        "201":
+          description: Prediction created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MatchPrediction"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    Player:
+      type: object
+      required: [id, name, position, rating, pace, shooting, passing, dribbling, defending, physical, nationality, club]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        position:
+          type: string
+        rating:
+          type: integer
+        pace:
+          type: integer
+        shooting:
+          type: integer
+        passing:
+          type: integer
+        dribbling:
+          type: integer
+        defending:
+          type: integer
+        physical:
+          type: integer
+        nationality:
+          type: string
+        club:
+          type: string
+        imageUrl:
+          type: ["string", "null"]
+
+    Squad:
+      type: object
+      required: [id, name, formation, overallRating, players, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        formation:
+          type: string
+        overallRating:
+          type: integer
+        players:
+          type: array
+          items:
+            $ref: "#/components/schemas/SquadMember"
+        createdAt:
+          type: string
+
+    SquadMember:
+      type: object
+      required: [id, playerId, positionSlot, player]
+      properties:
+        id:
+          type: integer
+        playerId:
+          type: integer
+        positionSlot:
+          type: string
+        player:
+          $ref: "#/components/schemas/Player"
+
+    SquadInput:
+      type: object
+      required: [name, formation]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        formation:
+          type: string
+
+    SquadUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        formation:
+          type: string
+
+    SquadPlayerInput:
+      type: object
+      required: [playerId, positionSlot]
+      properties:
+        playerId:
+          type: integer
+        positionSlot:
+          type: string
+
+    SquadsOverview:
+      type: object
+      required: [totalSquads, totalPlayers, avgOverallRating, topFormation]
+      properties:
+        totalSquads:
+          type: integer
+        totalPlayers:
+          type: integer
+        avgOverallRating:
+          type: number
+        topFormation:
+          type: string
+
+    SquadAnalysis:
+      type: object
+      required: [squadId, strengths, weaknesses, suggestions, overallGrade]
+      properties:
+        squadId:
+          type: integer
+        strengths:
+          type: array
+          items:
+            type: string
+        weaknesses:
+          type: array
+          items:
+            type: string
+        suggestions:
+          type: array
+          items:
+            type: string
+        overallGrade:
+          type: string
+
+    MatchPrediction:
+      type: object
+      required: [id, homeTeam, awayTeam, homeScore, awayScore, confidence, aiAnalysis, createdAt]
+      properties:
+        id:
+          type: integer
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        homeScore:
+          type: integer
+        awayScore:
+          type: integer
+        confidence:
+          type: number
+        aiAnalysis:
+          type: string
+        createdAt:
+          type: string
+
+    MatchInput:
+      type: object
+      required: [homeTeam, awayTeam]
+      properties:
+        homeTeam:
+          type: string
+        awayTeam:
+          type: string
+        homeSquadId:
+          type: ["integer", "null"]
+        awaySquadId:
+          type: ["integer", "null"]

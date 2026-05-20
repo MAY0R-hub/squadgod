@@ -13,6 +13,16 @@ const TRASH_TALKS = [
   "We don't predict wins. We manifest them. Onchain.",
 ];
 
+const FALLBACK_COMMENTARY = [
+  { minute: 1,  type: "kickoff",  text: "Kick off! The gaffer's orders are ringing in their ears." },
+  { minute: 14, type: "pressure", text: "High press engaged — the midfield is suffocating possession." },
+  { minute: 31, type: "chance",   text: "Great chance! The striker is clean through on goal..." },
+  { minute: 45, type: "whistle",  text: "Half time. Adjustments made. The gaffer paces the tunnel." },
+  { minute: 57, type: "pressure", text: "Second half intensity. Every touch feels decisive now." },
+  { minute: 76, type: "chance",   text: "Another chance — the crowd is on its feet." },
+  { minute: 90, type: "final",    text: "Full time whistle. The blockchain never forgets." },
+];
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 router.post("/", async (req, res) => {
@@ -61,6 +71,52 @@ Respond ONLY with a JSON object, no markdown, no backticks:
       tacticReason: "Classic formation, maximum control.",
     });
   }
+});
+
+router.get("/commentary", async (req, res) => {
+  const { gafferName, nationName, tactic, won } = req.query as Record<string, string>;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
+  const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+  let events: { minute: number; type: string; text: string }[] = [];
+
+  try {
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 800,
+      messages: [
+        {
+          role: "user",
+          content: `Generate live match commentary for ${gafferName || "The Gaffer"} managing ${nationName || "their nation"} playing ${tactic || "4-3-3"}.
+The match result is a ${won === "true" ? "WIN" : "LOSS"}.
+
+Return ONLY a JSON array of exactly 7 match events. No markdown, no backticks. Each event:
+{"minute": number, "type": "kickoff"|"pressure"|"chance"|"goal"|"tackle"|"whistle"|"final", "text": "commentary line, max 15 words, dramatic football style"}
+
+Build tension toward the ${won === "true" ? "winning" : "losing"} result. Keep it intense.`,
+        },
+      ],
+    });
+
+    const raw = message.content[0].type === "text" ? message.content[0].text.trim() : "[]";
+    events = JSON.parse(raw);
+  } catch {
+    events = FALLBACK_COMMENTARY;
+  }
+
+  for (const event of events) {
+    await delay(2200);
+    send(event);
+  }
+
+  await delay(1500);
+  send({ done: true });
+  res.end();
 });
 
 export default router;

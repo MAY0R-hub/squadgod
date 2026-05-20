@@ -301,7 +301,7 @@ function DeployScreen({ onDeploy }) {
   );
 }
 
-function WarRoom({ gaffer, onResult }) {
+function WarRoom({ gaffer, onStake }) {
   const [prompt, setPrompt] = useState("");
   const [thinking, setThinking] = useState(false);
   const [output, setOutput] = useState(null);
@@ -338,7 +338,7 @@ function WarRoom({ gaffer, onResult }) {
     setStaking(true);
     setTimeout(() => {
       setStaked(true);
-      setTimeout(() => onResult({ gaffer, ...output }), 2000);
+      setTimeout(() => onStake({ gaffer, ...output }), 1500);
     }, 2000);
   };
 
@@ -425,9 +425,105 @@ function WarRoom({ gaffer, onResult }) {
   );
 }
 
-function ResultScreen({ result }) {
+const EVENT_ICONS = {
+  kickoff: "⚽", pressure: "⚡", chance: "🎯", goal: "🔥",
+  tackle: "💥", whistle: "📢", final: "🏁",
+};
+
+function CommentaryScreen({ match, won, onDone }) {
+  const [events, setEvents] = useState([]);
+  const [status, setStatus] = useState("loading");
+
+  useEffect(() => {
+    const params = new URLSearchParams({
+      gafferName: match.gaffer.name,
+      nationName: match.gaffer.nation.name,
+      tactic: match.tactic,
+      won: String(won),
+    });
+
+    let cancelled = false;
+
+    fetch(`/api/gaffer/commentary?${params}`)
+      .then(res => {
+        setStatus("streaming");
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        const pump = async () => {
+          while (!cancelled) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.done) { if (!cancelled) onDone(); }
+                else setEvents(prev => [...prev, data]);
+              } catch {}
+            }
+          }
+        };
+        return pump();
+      })
+      .catch(() => { if (!cancelled) onDone(); });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "2rem 1rem", position: "relative" }}>
+      <PitchLines />
+      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at 50% 40%, rgba(0,255,135,0.06) 0%, transparent 60%)", pointerEvents: "none" }} />
+
+      <div style={{ width: "100%", maxWidth: 520, position: "relative", zIndex: 1 }}>
+        <div style={{ textAlign: "center", marginBottom: "2rem" }}>
+          <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "#00FF87", letterSpacing: "0.2em", textTransform: "uppercase", marginBottom: "0.5rem" }}>
+            {status === "loading" ? "⟳ Connecting to match feed..." : "● LIVE"}
+          </div>
+          <h2 style={{ fontFamily: "'Anton', sans-serif", fontSize: "clamp(1.8rem, 6vw, 2.5rem)", color: "#fff", margin: 0, letterSpacing: "0.02em" }}>
+            {match.gaffer.nation.flag} {match.gaffer.nation.name}
+            <span style={{ color: "rgba(255,255,255,0.2)", margin: "0 0.5rem" }}>vs</span>
+            The World
+          </h2>
+          <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.1em", marginTop: "0.4rem" }}>
+            {match.gaffer.name} · {match.tactic}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", minHeight: 320 }}>
+          {events.map((ev, i) => (
+            <div key={i} style={{ display: "flex", gap: "1rem", alignItems: "flex-start", animation: "slideUp 0.4s cubic-bezier(.16,1,.3,1)", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)", borderRadius: "10px", padding: "0.85rem 1rem" }}>
+              <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.6rem", color: "#00FF87", minWidth: 28, paddingTop: 2 }}>{ev.minute}'</div>
+              <div style={{ fontSize: "1rem", paddingTop: 1 }}>{EVENT_ICONS[ev.type] || "⚽"}</div>
+              <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "1.05rem", color: "rgba(255,255,255,0.85)", lineHeight: 1.4 }}>{ev.text}</div>
+            </div>
+          ))}
+
+          {status === "streaming" && events.length === 0 && (
+            <div style={{ textAlign: "center", padding: "3rem 0", fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "rgba(255,255,255,0.2)", letterSpacing: "0.1em" }}>
+              Awaiting first touch...
+            </div>
+          )}
+        </div>
+
+        <div style={{ marginTop: "1.5rem", height: "3px", background: "rgba(255,255,255,0.05)", borderRadius: "2px", overflow: "hidden" }}>
+          <div style={{ height: "100%", background: "linear-gradient(90deg, #00FF87, #FFD700)", borderRadius: "2px", width: `${Math.min(100, (events.length / 7) * 100)}%`, transition: "width 0.8s ease" }} />
+        </div>
+        <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.55rem", color: "rgba(255,255,255,0.2)", letterSpacing: "0.1em", textAlign: "right", marginTop: "0.4rem" }}>
+          {events.length}/7 events
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResultScreen({ result, won }) {
   const [revealed, setRevealed] = useState(false);
-  const [won] = useState(Math.random() > 0.45);
   const score = won
     ? `${Math.floor(Math.random() * 3) + 1}-${Math.floor(Math.random() * 2)}`
     : `${Math.floor(Math.random() * 2)}-${Math.floor(Math.random() * 3) + 1}`;
@@ -514,7 +610,9 @@ function ResultScreen({ result }) {
 function SquadGod() {
   const [screen, setScreen] = useState("hero");
   const [gaffer, setGaffer] = useState(null);
-  const [result, setResult] = useState(null);
+  const [match, setMatch] = useState(null);
+  const [won, setWon] = useState(false);
+
   return (
     <>
       <style>{`
@@ -537,9 +635,24 @@ function SquadGod() {
         <DeployScreen onDeploy={g => { setGaffer(g); setScreen("warroom"); }} />
       )}
       {screen === "warroom" && gaffer && (
-        <WarRoom gaffer={gaffer} onResult={r => { setResult(r); setScreen("result"); }} />
+        <WarRoom
+          gaffer={gaffer}
+          onStake={matchData => {
+            const didWin = Math.random() > 0.45;
+            setMatch(matchData);
+            setWon(didWin);
+            setScreen("commentary");
+          }}
+        />
       )}
-      {screen === "result" && result && <ResultScreen result={result} />}
+      {screen === "commentary" && match && (
+        <CommentaryScreen
+          match={match}
+          won={won}
+          onDone={() => setScreen("result")}
+        />
+      )}
+      {screen === "result" && match && <ResultScreen result={match} won={won} />}
     </>
   );
 }

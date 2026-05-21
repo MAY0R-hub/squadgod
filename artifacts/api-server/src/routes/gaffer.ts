@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 const router = Router();
 
 const TACTICS = ["4-3-3", "4-4-2", "3-5-2", "4-2-3-1", "5-3-2", "3-4-3"];
+
 const TRASH_TALKS = [
   "Your squad couldn't find the net with GPS.",
   "My Gaffer runs on pure W energy. Yours runs on cope.",
@@ -13,15 +14,40 @@ const TRASH_TALKS = [
   "We don't predict wins. We manifest them. Onchain.",
 ];
 
-const FALLBACK_COMMENTARY = [
-  { minute: 1,  type: "kickoff",  text: "Kick off! The gaffer's orders are ringing in their ears." },
-  { minute: 14, type: "pressure", text: "High press engaged — the midfield is suffocating possession." },
-  { minute: 31, type: "chance",   text: "Great chance! The striker is clean through on goal..." },
-  { minute: 45, type: "whistle",  text: "Half time. Adjustments made. The gaffer paces the tunnel." },
-  { minute: 57, type: "pressure", text: "Second half intensity. Every touch feels decisive now." },
-  { minute: 76, type: "chance",   text: "Another chance — the crowd is on its feet." },
-  { minute: 90, type: "final",    text: "Full time whistle. The blockchain never forgets." },
-];
+const NATION_STARS: Record<string, [string, string, string]> = {
+  Brazil:    ["Vinicius", "Rodrygo", "Endrick"],
+  Argentina: ["Messi", "Julián Álvarez", "Mac Allister"],
+  France:    ["Mbappé", "Camavinga", "Tchouaméni"],
+  Germany:   ["Wirtz", "Musiala", "Kimmich"],
+  Spain:     ["Yamal", "Pedri", "Morata"],
+  England:   ["Bellingham", "Saka", "Palmer"],
+  Portugal:  ["Cristiano", "Bruno", "Rúben Dias"],
+  Nigeria:   ["Osimhen", "Lookman", "Iwobi"],
+  Japan:     ["Kubo", "Mitoma", "Ueda"],
+  Mexico:    ["Lozano", "Lainez", "Rafa Márquez"],
+  USA:       ["Pulisic", "Reyna", "Adams"],
+  Morocco:   ["Hakimi", "En-Nesyri", "Ounahi"],
+};
+
+function buildFallbackCommentary(
+  nationName: string,
+  tactic: string,
+  gafferName: string,
+  won: boolean
+): Array<{ minute: number; type: string; text: string }> {
+  const stars = NATION_STARS[nationName] ?? ["the captain", "the striker", "the winger"];
+  const [s1, s2, s3] = stars;
+
+  return [
+    { minute: 1,  type: "kickoff",  text: `Kick off! ${gafferName}'s ${nationName} set up in ${tactic}.` },
+    { minute: 14, type: "pressure", text: `${nationName}'s ${tactic} suffocating the midfield — high press is working.` },
+    { minute: 31, type: "chance",   text: `${s1} drives forward. ${gafferName}'s instructions paying off!` },
+    { minute: 45, type: "whistle",  text: `Half time. ${nationName} ${won ? "in control" : "hanging on"}. The gaffer paces the tunnel.` },
+    { minute: 57, type: "pressure", text: `${s2} pressing relentlessly second half. No let-up from ${nationName}.` },
+    { minute: 76, type: "chance",   text: `${s3} finds space! ${nationName} ${won ? "pushing for the winner" : "chasing the equaliser"}.` },
+    { minute: 90, type: "final",    text: `FULL TIME. ${nationName} ${won ? "WIN" : "LOSE"}. Receipts onchain forever.` },
+  ];
+}
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -63,7 +89,7 @@ Respond ONLY with a JSON object, no markdown, no backticks:
 
     return res.json(parsed);
   } catch (err) {
-    req.log.warn({ err }, "Anthropic call failed, using fallback");
+    req.log.warn({ err }, "Anthropic /gaffer failed, using fallback");
     return res.json({
       tactic: TACTICS[Math.floor(Math.random() * TACTICS.length)],
       taunt: TRASH_TALKS[Math.floor(Math.random() * TRASH_TALKS.length)],
@@ -74,7 +100,10 @@ Respond ONLY with a JSON object, no markdown, no backticks:
 });
 
 router.get("/commentary", async (req, res) => {
-  const { gafferName, nationName, tactic, won } = req.query as Record<string, string>;
+  const { gafferName = "The Gaffer", nationName = "the nation", tactic = "4-3-3", won = "false" } =
+    req.query as Record<string, string>;
+  const didWin = won === "true";
+  const stars = (NATION_STARS[nationName] ?? ["the captain", "the striker", "the winger"]).join(", ");
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -83,7 +112,7 @@ router.get("/commentary", async (req, res) => {
   const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
   const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-  let events: { minute: number; type: string; text: string }[] = [];
+  let events: Array<{ minute: number; type: string; text: string }> = [];
 
   try {
     const message = await client.messages.create({
@@ -92,13 +121,14 @@ router.get("/commentary", async (req, res) => {
       messages: [
         {
           role: "user",
-          content: `Generate live match commentary for ${gafferName || "The Gaffer"} managing ${nationName || "their nation"} playing ${tactic || "4-3-3"}.
-The match result is a ${won === "true" ? "WIN" : "LOSS"}.
+          content: `Generate live match commentary for ${gafferName} managing ${nationName} in a ${tactic} formation.
+Key players to reference: ${stars}.
+The match result is a ${didWin ? "WIN" : "LOSS"}.
 
 Return ONLY a JSON array of exactly 7 match events. No markdown, no backticks. Each event:
-{"minute": number, "type": "kickoff"|"pressure"|"chance"|"goal"|"tackle"|"whistle"|"final", "text": "commentary line, max 15 words, dramatic football style"}
+{"minute": number, "type": "kickoff"|"pressure"|"chance"|"goal"|"tackle"|"whistle"|"final", "text": "commentary line max 15 words — reference the nation, formation or a player by name. Dramatic football style."}
 
-Build tension toward the ${won === "true" ? "winning" : "losing"} result. Keep it intense.`,
+Build tension toward the ${didWin ? "winning" : "losing"} result. Last event must be minute 90, type "final".`,
         },
       ],
     });
@@ -106,7 +136,7 @@ Build tension toward the ${won === "true" ? "winning" : "losing"} result. Keep i
     const raw = message.content[0].type === "text" ? message.content[0].text.trim() : "[]";
     events = JSON.parse(raw);
   } catch {
-    events = FALLBACK_COMMENTARY;
+    events = buildFallbackCommentary(nationName, tactic, gafferName, didWin);
   }
 
   for (const event of events) {

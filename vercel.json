@@ -1,0 +1,16 @@
+{
+  "buildCommand": "pnpm --filter @workspace/squadgod run build",
+  "outputDirectory": "artifacts/squadgod/dist/public",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "framework": null,
+  "env": {
+    "PORT": "3000",
+    "BASE_PATH": "/"
+  },
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://6c1ae2e5-5d3d-4d6c-8b7b-95a08bb4d84e-00-17s49xle38795.worf.replit.dev/api/:path*"
+    }
+  ]
+}

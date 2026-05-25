@@ -1,0 +1,45 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    name: Typecheck, Build & Deploy
+    runs-on: ubuntu-latest
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Build
+        run: pnpm -r --if-present run build
+        env:
+          NODE_ENV: production
+
+      - name: Deploy to Replit
+        run: npx @replit/cli@latest deployments create --token "$REPLIT_TOKEN"
+        env:
+          REPLIT_TOKEN: ${{ secrets.REPLIT_TOKEN }}

@@ -1,4 +1,20 @@
 import { useState, useEffect, useRef } from "react";
+import { BrowserProvider, parseEther } from "ethers";
+
+const X_LAYER_TESTNET = {
+  chainId: "0xC3", // 195
+  chainName: "X Layer Testnet",
+  nativeCurrency: { name: "OKB", symbol: "OKB", decimals: 18 },
+  rpcUrls: ["https://testrpc.xlayer.tech"],
+  blockExplorerUrls: ["https://www.oklink.com/xlayer-test"],
+};
+const STAKE_TO_ADDRESS = "0x0000000000000000000000000000000000000001";
+const STAKE_AMOUNT_OKB = "0.001";
+
+function getOkxProvider() {
+  if (typeof window === "undefined") return null;
+  return window.okxwallet || (window.ethereum && window.ethereum.isOkxWallet ? window.ethereum : null);
+}
 
 const NATIONS = [
   { code: "BR", name: "Brazil", flag: "🇧🇷", color: "#009C3B" },
@@ -335,12 +351,54 @@ function WarRoom({ gaffer, onStake }) {
     }
   };
 
-  const handleStake = () => {
+  const [walletInstalled, setWalletInstalled] = useState(false);
+  const [stakeError, setStakeError] = useState("");
+
+  useEffect(() => {
+    setWalletInstalled(!!getOkxProvider());
+  }, []);
+
+  const handleStake = async () => {
+    const okx = getOkxProvider();
+    if (!okx) {
+      window.open("https://www.okx.com/web3/wallet", "_blank");
+      return;
+    }
+
+    setStakeError("");
     setStaking(true);
-    setTimeout(() => {
+    try {
+      await okx.request({ method: "eth_requestAccounts" });
+
+      try {
+        await okx.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: X_LAYER_TESTNET.chainId }],
+        });
+      } catch (switchErr) {
+        if (switchErr && (switchErr.code === 4902 || switchErr.code === -32603)) {
+          await okx.request({
+            method: "wallet_addEthereumChain",
+            params: [X_LAYER_TESTNET],
+          });
+        } else {
+          throw switchErr;
+        }
+      }
+
+      const provider = new BrowserProvider(okx);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({
+        to: STAKE_TO_ADDRESS,
+        value: parseEther(STAKE_AMOUNT_OKB),
+      });
+
       setStaked(true);
-      setTimeout(() => onStake({ gaffer, ...output }), 1500);
-    }, 2000);
+      setTimeout(() => onStake({ gaffer, ...output, txHash: tx.hash }), 1500);
+    } catch (err) {
+      setStakeError(err?.shortMessage || err?.message || "Transaction failed");
+      setStaking(false);
+    }
   };
 
   const { displayed: tauntDisplayed } = useTypewriter(output?.taunt || "", 35, !!output);
@@ -446,8 +504,19 @@ function WarRoom({ gaffer, onStake }) {
               disabled={staking}
               style={{ width: "100%", background: staked ? "rgba(0,255,135,0.2)" : "#00FF87", color: staked ? "#00FF87" : "#000", border: staked ? "1.5px solid #00FF87" : "none", borderRadius: "6px", padding: "1.1rem", fontFamily: "'Anton', sans-serif", fontSize: "1rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: staking ? "wait" : "pointer", transition: "all 0.3s", boxShadow: staked ? "none" : "0 0 30px rgba(0,255,135,0.4)" }}
             >
-              {staked ? "✓ Staked Onchain — Loading Results..." : staking ? "⟳ Broadcasting to X Layer..." : "Confirm Stake + Go Onchain ⛓"}
+              {staked
+                ? "✓ Staked Onchain — Loading Results..."
+                : staking
+                ? "⟳ Broadcasting to X Layer..."
+                : walletInstalled
+                ? "Confirm Stake + Go Onchain ⛓"
+                : "Install OKX Wallet ↗"}
             </button>
+            {stakeError && (
+              <div style={{ marginTop: "0.75rem", fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "#FF4444", letterSpacing: "0.05em", textAlign: "center", wordBreak: "break-word" }}>
+                {stakeError}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -557,7 +626,7 @@ function ResultScreen({ result, won }) {
   const score = won
     ? `${Math.floor(Math.random() * 3) + 1}-${Math.floor(Math.random() * 2)}`
     : `${Math.floor(Math.random() * 2)}-${Math.floor(Math.random() * 3) + 1}`;
-  const txHash = "0x" + Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  const txHash = result.txHash || ("0x" + Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join(""));
   const shareText = `My AI Gaffer "${result.gaffer.name}" just called it.\n\n${result.gaffer.nation.flag} ${result.gaffer.nation.name} ${score} | Formation: ${result.tactic}\n\nReceipts onchain on @XLayerOfficial\n\n#SquadGod #WorldCup2026`;
 
   useEffect(() => {

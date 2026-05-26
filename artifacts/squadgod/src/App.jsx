@@ -398,7 +398,7 @@ function WarRoom({ gaffer, onStake }) {
           <textarea
             value={prompt}
             onChange={e => setPrompt(e.target.value)}
-            placeholder="e.g. Play 4-3-3, press high, stake 50 OKB on Brazil to win..."
+            placeholder="e.g. Press high, stake 50 OKB on Nigeria to win..."
             rows={3}
             style={{ width: "100%", background: "rgba(255,255,255,0.05)", border: "1.5px solid rgba(255,255,255,0.1)", borderRadius: "8px", padding: "1rem", color: "#fff", fontFamily: "'Barlow Condensed', sans-serif", fontSize: "1.1rem", outline: "none", resize: "none", boxSizing: "border-box", lineHeight: 1.5, transition: "border-color 0.15s" }}
             onFocus={e => e.target.style.borderColor = "#00FF87"}

@@ -69,10 +69,13 @@ async function callAnthropic(params: Parameters<typeof client.messages.create>[0
 }
 
 router.post("/", async (req, res) => {
-  const { prompt, gafferName, nationName } = req.body;
+  const { prompt, gafferName, nationName, formation } = req.body;
 
   if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
     return res.status(400).json({ error: "prompt is required" });
+  }
+  if (!formation || !TACTICS.includes(formation)) {
+    return res.status(400).json({ error: `formation is required and must be one of: ${TACTICS.join(", ")}` });
   }
 
   try {
@@ -84,14 +87,16 @@ router.post("/", async (req, res) => {
           role: "user",
           content: `You are ${gafferName}, an aggressive AI football manager for ${nationName}.
 
+FORMATION RULE: You MUST use exactly the formation provided: ${formation}. Never substitute or override it. If the user selected ${formation} you output ${formation}. This is non-negotiable.
+
 The user said: "${prompt}"
 
 Respond ONLY with a JSON object, no markdown, no backticks:
 {
-  "tactic": "one of: 4-3-3, 4-4-2, 3-5-2, 4-2-3-1, 5-3-2, 3-4-3",
+  "tactic": "${formation}",
   "taunt": "one savage trash-talk line max 12 words, football culture",
   "stakeAmt": "a number between 10 and 80",
-  "tacticReason": "one sentence why this formation fits"
+  "tacticReason": "one sentence why ${formation} fits this match plan"
 }`,
         },
       ],
@@ -101,15 +106,14 @@ Respond ONLY with a JSON object, no markdown, no backticks:
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text.trim());
 
-    if (!TACTICS.includes(parsed.tactic)) {
-      parsed.tactic = TACTICS[Math.floor(Math.random() * TACTICS.length)];
-    }
+    // Always enforce the formation the user selected — never let the AI override it
+    parsed.tactic = formation;
 
     return res.json(parsed);
   } catch (err) {
     req.log.warn({ err }, "Anthropic /gaffer failed, using fallback");
     return res.json({
-      tactic: TACTICS[Math.floor(Math.random() * TACTICS.length)],
+      tactic: formation,
       taunt: TRASH_TALKS[Math.floor(Math.random() * TRASH_TALKS.length)],
       stakeAmt: String((Math.random() * 40 + 10).toFixed(1)),
       tacticReason: "Classic formation, maximum control.",

@@ -303,6 +303,7 @@ function DeployScreen({ onDeploy }) {
 
 function WarRoom({ gaffer, onStake }) {
   const [prompt, setPrompt] = useState("");
+  const [formation, setFormation] = useState(TACTICS[0]);
   const [thinking, setThinking] = useState(false);
   const [output, setOutput] = useState(null);
   const [staking, setStaking] = useState(false);
@@ -320,15 +321,15 @@ function WarRoom({ gaffer, onStake }) {
           gafferName: gaffer.name,
           nationName: gaffer.nation.name,
           prompt,
+          formation,
         }),
       });
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
       setOutput(data);
     } catch {
-      const tactic = TACTICS[Math.floor(Math.random() * TACTICS.length)];
       const taunt = TRASH_TALKS[Math.floor(Math.random() * TRASH_TALKS.length)];
-      setOutput({ tactic, taunt, stakeAmt: "25.0", tacticReason: "Classic formation, maximum control." });
+      setOutput({ tactic: formation, taunt, stakeAmt: "25.0", tacticReason: "Classic formation, maximum control." });
     } finally {
       setThinking(false);
     }
@@ -359,6 +360,35 @@ function WarRoom({ gaffer, onStake }) {
             </div>
           </div>
           <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.6rem", color: "rgba(255,255,255,0.25)", letterSpacing: "0.05em" }}>W:0 / D:0 / L:0</div>
+        </div>
+
+        <div style={{ marginBottom: "1.25rem" }}>
+          <label style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "rgba(255,255,255,0.4)", letterSpacing: "0.15em", textTransform: "uppercase", display: "block", marginBottom: "0.75rem" }}>
+            Select Formation
+          </label>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.5rem", marginBottom: "1.25rem" }}>
+            {TACTICS.map(t => (
+              <button
+                key={t}
+                onClick={() => { setFormation(t); setOutput(null); }}
+                style={{
+                  background: formation === t ? "rgba(0,255,135,0.15)" : "rgba(255,255,255,0.04)",
+                  border: formation === t ? "1.5px solid #00FF87" : "1.5px solid rgba(255,255,255,0.08)",
+                  borderRadius: "6px",
+                  padding: "0.6rem 0.25rem",
+                  color: formation === t ? "#00FF87" : "rgba(255,255,255,0.5)",
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: "0.75rem",
+                  letterSpacing: "0.05em",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  boxShadow: formation === t ? "0 0 10px rgba(0,255,135,0.2)" : "none",
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div style={{ marginBottom: "1.25rem" }}>

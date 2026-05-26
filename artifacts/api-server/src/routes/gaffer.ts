@@ -51,6 +51,23 @@ function buildFallbackCommentary(
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  return promise.finally(() => clearTimeout(id)) as Promise<T>;
+}
+
+async function callAnthropic(params: Parameters<typeof client.messages.create>[0], timeoutMs: number) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const msg = await client.messages.create(params, { signal: controller.signal });
+    return msg;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 router.post("/", async (req, res) => {
   const { prompt, gafferName, nationName } = req.body;
 
@@ -59,8 +76,8 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+    const message = await callAnthropic({
+      model: "claude-sonnet-4-5",
       max_tokens: 1000,
       messages: [
         {
@@ -78,10 +95,11 @@ Respond ONLY with a JSON object, no markdown, no backticks:
 }`,
         },
       ],
-    });
+    }, 8000);
 
     const text = message.content[0].type === "text" ? message.content[0].text : "";
-    const parsed = JSON.parse(text.trim());
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text.trim());
 
     if (!TACTICS.includes(parsed.tactic)) {
       parsed.tactic = TACTICS[Math.floor(Math.random() * TACTICS.length)];
@@ -108,15 +126,19 @@ router.get("/commentary", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
 
   const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
   const delay = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+  // Heartbeat so proxies/clients know the connection is alive immediately
+  res.write(": connected\n\n");
+
   let events: Array<{ minute: number; type: string; text: string }> = [];
 
   try {
-    const message = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
+    const message = await callAnthropic({
+      model: "claude-sonnet-4-5",
       max_tokens: 800,
       messages: [
         {
@@ -131,10 +153,16 @@ Return ONLY a JSON array of exactly 7 match events. No markdown, no backticks. E
 Build tension toward the ${didWin ? "winning" : "losing"} result. Last event must be minute 90, type "final".`,
         },
       ],
-    });
+    }, 5000);
 
     const raw = message.content[0].type === "text" ? message.content[0].text.trim() : "[]";
-    events = JSON.parse(raw);
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    if (Array.isArray(parsed) && parsed.length >= 5) {
+      events = parsed;
+    } else {
+      events = buildFallbackCommentary(nationName, tactic, gafferName, didWin);
+    }
   } catch {
     events = buildFallbackCommentary(nationName, tactic, gafferName, didWin);
   }

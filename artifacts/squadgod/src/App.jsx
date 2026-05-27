@@ -23,6 +23,74 @@ function getOkxProvider() {
   return null;
 }
 
+function extractWalletError(err, fallback = "Transaction failed") {
+  if (!err) return fallback;
+  const raw =
+    err?.info?.error?.message ||
+    err?.error?.message ||
+    err?.data?.message ||
+    err?.cause?.message ||
+    err?.shortMessage ||
+    err?.message ||
+    (typeof err === "string" ? err : "") ||
+    fallback;
+  const lower = String(raw).toLowerCase();
+  if (lower.includes("could not coalesce")) {
+    return "Your wallet returned an unexpected response. Open the OKX app, unlock it, and tap Deploy again.";
+  }
+  if (lower.includes("user rejected") || lower.includes("user denied") || err?.code === 4001) {
+    return "You cancelled the request in your wallet.";
+  }
+  if (lower.includes("insufficient funds")) {
+    return "Not enough OKB on X Layer Testnet to cover gas. Top up and retry.";
+  }
+  if (lower.includes("chain") && lower.includes("not")) {
+    return "Switch to X Layer Testnet in OKX Wallet and try again.";
+  }
+  if (lower.includes("network") || lower.includes("timeout") || lower.includes("failed to fetch")) {
+    return "Network blip talking to X Layer. Check your connection and retry.";
+  }
+  return raw.length > 140 ? raw.slice(0, 140) + "…" : raw;
+}
+
+async function requestAccountsWithRetry(okx, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const accounts = await okx.request({ method: "eth_requestAccounts" });
+      if (Array.isArray(accounts) && accounts[0]) return accounts;
+      lastErr = new Error("Wallet returned no accounts");
+    } catch (err) {
+      lastErr = err;
+      if (err?.code === 4001) throw err;
+    }
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+  }
+  throw lastErr || new Error("Wallet did not connect");
+}
+
+async function ensureXLayerChain(okx) {
+  try {
+    await okx.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: X_LAYER_TESTNET.chainId }],
+    });
+  } catch (switchErr) {
+    if (switchErr && (switchErr.code === 4902 || switchErr.code === -32603)) {
+      await okx.request({
+        method: "wallet_addEthereumChain",
+        params: [X_LAYER_TESTNET],
+      });
+    } else {
+      throw switchErr;
+    }
+  }
+  const chainId = await okx.request({ method: "eth_chainId" });
+  if (String(chainId).toLowerCase() !== X_LAYER_TESTNET.chainId.toLowerCase()) {
+    throw new Error("Wallet is on the wrong chain. Switch to X Layer Testnet and retry.");
+  }
+}
+
 function useWalletDetection() {
   const [installed, setInstalled] = useState(false);
   useEffect(() => {
@@ -236,10 +304,19 @@ function DeployScreen({ onDeploy }) {
   const [deployError, setDeployError] = useState("");
 
   const handleDeploy = async () => {
-    if (!name || !selectedNation) return;
+    const trimmedName = (name || "").trim();
+    if (!trimmedName) {
+      setDeployError("Give your Gaffer a name first.");
+      return;
+    }
+    if (!selectedNation || !selectedNation.name) {
+      setDeployError("Pick a nation before deploying.");
+      return;
+    }
 
     const okx = getOkxProvider();
-    if (!okx) {
+    if (!okx || !walletInstalled) {
+      setDeployError("OKX Wallet not detected. Open this page inside the OKX app browser or install the extension.");
       window.open("https://www.okx.com/web3/wallet", "_blank");
       return;
     }
@@ -249,27 +326,19 @@ function DeployScreen({ onDeploy }) {
     setDeployed(false);
     setMintTxHash("");
 
+    let stage = "connect";
     try {
-      const accounts = await okx.request({ method: "eth_requestAccounts" });
-      const address = accounts?.[0] || "";
+      const accounts = await requestAccountsWithRetry(okx);
+      const address = accounts?.[0];
+      if (!address || typeof address !== "string" || !address.startsWith("0x")) {
+        throw new Error("Wallet did not return an address. Unlock OKX Wallet and retry.");
+      }
       setWalletAddress(address);
 
-      try {
-        await okx.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: X_LAYER_TESTNET.chainId }],
-        });
-      } catch (switchErr) {
-        if (switchErr && (switchErr.code === 4902 || switchErr.code === -32603)) {
-          await okx.request({
-            method: "wallet_addEthereumChain",
-            params: [X_LAYER_TESTNET],
-          });
-        } else {
-          throw switchErr;
-        }
-      }
+      stage = "switchChain";
+      await ensureXLayerChain(okx);
 
+      stage = "sendTransaction";
       const provider = new BrowserProvider(okx);
       const signer = await provider.getSigner();
       const tx = await signer.sendTransaction({
@@ -280,11 +349,19 @@ function DeployScreen({ onDeploy }) {
 
       setDeployed(true);
       setTimeout(
-        () => onDeploy({ name, nation: selectedNation, walletAddress: address, mintTxHash: tx.hash }),
+        () => onDeploy({ name: trimmedName, nation: selectedNation, walletAddress: address, mintTxHash: tx.hash }),
         1800,
       );
     } catch (err) {
-      setDeployError(err?.shortMessage || err?.message || "Mint failed");
+      console.error("[deploy] failed at stage=" + stage, {
+        name: trimmedName,
+        nation: selectedNation?.name,
+        message: err?.message,
+        code: err?.code,
+        info: err?.info,
+        stack: err?.stack,
+      });
+      setDeployError(extractWalletError(err, "Mint failed"));
       setDeploying(false);
     }
   };
@@ -459,33 +536,28 @@ function WarRoom({ gaffer, onStake }) {
   const [stakeError, setStakeError] = useState("");
 
   const handleStake = async () => {
+    if (!gaffer?.walletAddress) {
+      setStakeError("Wallet session lost. Refresh and reconnect OKX Wallet.");
+      return;
+    }
     const okx = getOkxProvider();
-    if (!okx) {
+    if (!okx || !walletInstalled) {
+      setStakeError("OKX Wallet not detected. Open this page inside the OKX app browser or install the extension.");
       window.open("https://www.okx.com/web3/wallet", "_blank");
       return;
     }
 
     setStakeError("");
     setStaking(true);
+    let stage = "connect";
     try {
-      await okx.request({ method: "eth_requestAccounts" });
+      const accounts = await requestAccountsWithRetry(okx);
+      if (!accounts?.[0]) throw new Error("Wallet did not return an address.");
 
-      try {
-        await okx.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: X_LAYER_TESTNET.chainId }],
-        });
-      } catch (switchErr) {
-        if (switchErr && (switchErr.code === 4902 || switchErr.code === -32603)) {
-          await okx.request({
-            method: "wallet_addEthereumChain",
-            params: [X_LAYER_TESTNET],
-          });
-        } else {
-          throw switchErr;
-        }
-      }
+      stage = "switchChain";
+      await ensureXLayerChain(okx);
 
+      stage = "sendTransaction";
       const provider = new BrowserProvider(okx);
       const signer = await provider.getSigner();
       const tx = await signer.sendTransaction({
@@ -496,7 +568,15 @@ function WarRoom({ gaffer, onStake }) {
       setStaked(true);
       setTimeout(() => onStake({ gaffer, ...output, txHash: tx.hash }), 1500);
     } catch (err) {
-      setStakeError(err?.shortMessage || err?.message || "Transaction failed");
+      console.error("[stake] failed at stage=" + stage, {
+        gaffer: gaffer?.name,
+        wallet: gaffer?.walletAddress,
+        message: err?.message,
+        code: err?.code,
+        info: err?.info,
+        stack: err?.stack,
+      });
+      setStakeError(extractWalletError(err, "Stake failed"));
       setStaking(false);
     }
   };

@@ -621,7 +621,7 @@ function CommentaryScreen({ match, won, onDone }) {
 
     let cancelled = false;
 
-    fetch(`/api/gaffer/commentary?${params}`)
+    fetch(`/api/commentary?${params}`)
       .then(res => {
         setStatus("streaming");
         const reader = res.body.getReader();

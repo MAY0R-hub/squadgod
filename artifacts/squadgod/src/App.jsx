@@ -18,19 +18,53 @@ function dumpRpcError(tag, err) {
   }
 }
 
+function isOkxMobile() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const okxInUa = /OKApp|OKEx|OKX/i.test(ua);
+  const mobileUa = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+  const okxFlag = !!(window.okxwallet || window.ethereum?.isOkxWallet);
+  return (okxInUa && okxFlag) || (mobileUa && okxFlag);
+}
+
 async function sendRawTx(okx, txPayload, tag) {
-  console.log(`[${tag}] eth_sendTransaction payload →`, txPayload);
-  try {
-    const hash = await okx.request({
-      method: "eth_sendTransaction",
-      params: [txPayload],
-    });
-    console.log(`[${tag}] tx hash →`, hash);
-    return hash;
-  } catch (err) {
-    dumpRpcError(tag, err);
-    throw err;
+  const mobile = isOkxMobile();
+  console.log(`[${tag}] eth_sendTransaction (mobile=${mobile}) payload →`, txPayload);
+
+  // Build the strictest possible payload variants. Desktop keeps {from,to,value}.
+  // Mobile OKX in-app browser is known to choke on extra fields and on a `from`
+  // address it considers "extra" — so we try {to,value} first, then re-add `from`.
+  const variants = mobile
+    ? [
+        { to: txPayload.to, value: txPayload.value },
+        { from: txPayload.from, to: txPayload.to, value: txPayload.value },
+      ]
+    : [txPayload];
+
+  let lastErr;
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i];
+    console.log(`[${tag}] attempt ${i + 1}/${variants.length} →`, variant);
+    try {
+      const hash = await okx.request({
+        method: "eth_sendTransaction",
+        params: [variant],
+      });
+      console.log(`[${tag}] tx hash →`, hash);
+      return hash;
+    } catch (err) {
+      dumpRpcError(`${tag}.attempt${i + 1}`, err);
+      lastErr = err;
+      const msg = String(err?.message || "").toLowerCase();
+      // Don't retry user-rejected or insufficient funds.
+      if (err?.code === 4001 || msg.includes("user rejected") || msg.includes("user denied") || msg.includes("insufficient")) {
+        throw err;
+      }
+      // Brief gap before the next variant — gives OKX mobile time to reset its RPC state.
+      if (i < variants.length - 1) await new Promise((r) => setTimeout(r, 600));
+    }
   }
+  throw lastErr || new Error("Transaction failed");
 }
 
 const X_LAYER_TESTNET = {

@@ -1,5 +1,37 @@
 import { useState, useEffect, useRef } from "react";
-import { BrowserProvider, parseEther } from "ethers";
+import { parseEther } from "ethers";
+
+function toHexWei(okbStr) {
+  return "0x" + parseEther(okbStr).toString(16);
+}
+
+function dumpRpcError(tag, err) {
+  try {
+    console.error(`[${tag}] raw RPC error →`, err);
+    console.error(`[${tag}] JSON →`, JSON.stringify(err, Object.getOwnPropertyNames(err || {})));
+    console.error(`[${tag}] code=${err?.code} message=${err?.message}`);
+    if (err?.data) console.error(`[${tag}] data →`, err.data);
+    if (err?.info) console.error(`[${tag}] info →`, err.info);
+    if (err?.cause) console.error(`[${tag}] cause →`, err.cause);
+  } catch (e) {
+    console.error(`[${tag}] dump failed`, e);
+  }
+}
+
+async function sendRawTx(okx, txPayload, tag) {
+  console.log(`[${tag}] eth_sendTransaction payload →`, txPayload);
+  try {
+    const hash = await okx.request({
+      method: "eth_sendTransaction",
+      params: [txPayload],
+    });
+    console.log(`[${tag}] tx hash →`, hash);
+    return hash;
+  } catch (err) {
+    dumpRpcError(tag, err);
+    throw err;
+  }
+}
 
 const X_LAYER_TESTNET = {
   chainId: "0x7A0", // 1952
@@ -57,10 +89,13 @@ async function requestAccountsWithRetry(okx, attempts = 3) {
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
+      console.log(`[wallet] eth_requestAccounts attempt ${i + 1}`);
       const accounts = await okx.request({ method: "eth_requestAccounts" });
+      console.log(`[wallet] accounts →`, accounts);
       if (Array.isArray(accounts) && accounts[0]) return accounts;
       lastErr = new Error("Wallet returned no accounts");
     } catch (err) {
+      dumpRpcError("wallet.eth_requestAccounts", err);
       lastErr = err;
       if (err?.code === 4001) throw err;
     }
@@ -70,22 +105,30 @@ async function requestAccountsWithRetry(okx, attempts = 3) {
 }
 
 async function ensureXLayerChain(okx) {
+  console.log(`[wallet] wallet_switchEthereumChain → ${X_LAYER_TESTNET.chainId}`);
   try {
     await okx.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: X_LAYER_TESTNET.chainId }],
     });
+    console.log("[wallet] switch resolved");
   } catch (switchErr) {
+    dumpRpcError("wallet.switch", switchErr);
     if (switchErr && (switchErr.code === 4902 || switchErr.code === -32603)) {
+      console.log("[wallet] chain unknown, wallet_addEthereumChain →", X_LAYER_TESTNET);
       await okx.request({
         method: "wallet_addEthereumChain",
         params: [X_LAYER_TESTNET],
       });
+      console.log("[wallet] add resolved");
     } else {
       throw switchErr;
     }
   }
+  // Give OKX mobile time to fully commit the chain switch before signing.
+  await new Promise((r) => setTimeout(r, 1000));
   const chainId = await okx.request({ method: "eth_chainId" });
+  console.log(`[wallet] eth_chainId after switch → ${chainId}`);
   if (String(chainId).toLowerCase() !== X_LAYER_TESTNET.chainId.toLowerCase()) {
     throw new Error("Wallet is on the wrong chain. Switch to X Layer Testnet and retry.");
   }
@@ -339,17 +382,21 @@ function DeployScreen({ onDeploy }) {
       await ensureXLayerChain(okx);
 
       stage = "sendTransaction";
-      const provider = new BrowserProvider(okx);
-      const signer = await provider.getSigner();
-      const tx = await signer.sendTransaction({
+      // Minimal payload only — no gas/gasPrice/nonce/data. OKX mobile's RPC
+      // chokes on extra fields and ethers wraps the error as "could not coalesce".
+      // We bypass BrowserProvider and call eth_sendTransaction directly so the
+      // raw RPC error reaches the console.
+      const txPayload = {
+        from: address,
         to: STAKE_TO_ADDRESS,
-        value: parseEther("0.0001"),
-      });
-      setMintTxHash(tx.hash);
+        value: toHexWei("0.0001"),
+      };
+      const hash = await sendRawTx(okx, txPayload, "deploy");
+      setMintTxHash(hash);
 
       setDeployed(true);
       setTimeout(
-        () => onDeploy({ name: trimmedName, nation: selectedNation, walletAddress: address, mintTxHash: tx.hash }),
+        () => onDeploy({ name: trimmedName, nation: selectedNation, walletAddress: address, mintTxHash: hash }),
         1800,
       );
     } catch (err) {
@@ -359,11 +406,21 @@ function DeployScreen({ onDeploy }) {
         message: err?.message,
         code: err?.code,
         info: err?.info,
+        data: err?.data,
         stack: err?.stack,
       });
       setDeployError(extractWalletError(err, "Mint failed"));
       setDeploying(false);
     }
+  };
+
+  const handleDemoContinue = () => {
+    const trimmedName = (name || "").trim();
+    if (!trimmedName || !selectedNation) return;
+    const demoAddress = walletAddress || "0xDEM0000000000000000000000000000000000000";
+    const demoTx = "0xDEMO" + Math.random().toString(16).slice(2, 10).padEnd(60, "0");
+    console.log("[deploy] entering demo mode", { demoAddress, demoTx });
+    onDeploy({ name: trimmedName, nation: selectedNation, walletAddress: demoAddress, mintTxHash: demoTx, demoMode: true });
   };
 
   return (
@@ -461,8 +518,16 @@ function DeployScreen({ onDeploy }) {
             </div>
 
             {deployError && (
-              <div style={{ marginTop: "1rem", fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "#FF4444", letterSpacing: "0.05em", textAlign: "center", wordBreak: "break-word" }}>
-                {deployError}
+              <div style={{ marginTop: "1rem" }}>
+                <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "#FF4444", letterSpacing: "0.05em", textAlign: "center", wordBreak: "break-word" }}>
+                  {deployError}
+                </div>
+                <button
+                  onClick={handleDemoContinue}
+                  style={{ marginTop: "0.75rem", width: "100%", background: "transparent", border: "1.5px solid rgba(0,255,135,0.4)", borderRadius: "4px", padding: "0.75rem", color: "#00FF87", fontFamily: "'Space Mono', monospace", fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer" }}
+                >
+                  Continue in Demo Mode →
+                </button>
               </div>
             )}
 
@@ -552,21 +617,22 @@ function WarRoom({ gaffer, onStake }) {
     let stage = "connect";
     try {
       const accounts = await requestAccountsWithRetry(okx);
-      if (!accounts?.[0]) throw new Error("Wallet did not return an address.");
+      const address = accounts?.[0];
+      if (!address) throw new Error("Wallet did not return an address.");
 
       stage = "switchChain";
       await ensureXLayerChain(okx);
 
       stage = "sendTransaction";
-      const provider = new BrowserProvider(okx);
-      const signer = await provider.getSigner();
-      const tx = await signer.sendTransaction({
+      const txPayload = {
+        from: address,
         to: STAKE_TO_ADDRESS,
-        value: parseEther(STAKE_AMOUNT_OKB),
-      });
+        value: toHexWei(STAKE_AMOUNT_OKB),
+      };
+      const hash = await sendRawTx(okx, txPayload, "stake");
 
       setStaked(true);
-      setTimeout(() => onStake({ gaffer, ...output, txHash: tx.hash }), 1500);
+      setTimeout(() => onStake({ gaffer, ...output, txHash: hash }), 1500);
     } catch (err) {
       console.error("[stake] failed at stage=" + stage, {
         gaffer: gaffer?.name,

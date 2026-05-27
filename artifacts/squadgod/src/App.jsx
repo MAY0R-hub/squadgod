@@ -5,7 +5,7 @@ const X_LAYER_TESTNET = {
   chainId: "0xC3", // 195
   chainName: "X Layer Testnet",
   nativeCurrency: { name: "OKB", symbol: "OKB", decimals: 18 },
-  rpcUrls: ["https://testrpc.xlayer.tech"],
+  rpcUrls: ["https://testrpc.xlayer.tech/"],
   blockExplorerUrls: ["https://www.oklink.com/xlayer-test"],
 };
 const STAKE_TO_ADDRESS = "0x0000000000000000000000000000000000000001";

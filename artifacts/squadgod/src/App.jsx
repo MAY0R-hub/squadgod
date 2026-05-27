@@ -200,15 +200,67 @@ function DeployScreen({ onDeploy }) {
   const [step, setStep] = useState(1);
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
-  const hash = "0x" + Array.from({ length: 12 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  const [walletInstalled, setWalletInstalled] = useState(false);
+  const [walletAddress, setWalletAddress] = useState("");
+  const [mintTxHash, setMintTxHash] = useState("");
+  const [deployError, setDeployError] = useState("");
 
-  const handleDeploy = () => {
+  useEffect(() => {
+    setWalletInstalled(!!getOkxProvider());
+  }, []);
+
+  const handleDeploy = async () => {
     if (!name || !selectedNation) return;
+
+    const okx = getOkxProvider();
+    if (!okx) {
+      window.open("https://www.okx.com/web3/wallet", "_blank");
+      return;
+    }
+
+    setDeployError("");
     setDeploying(true);
-    setTimeout(() => {
+    setDeployed(false);
+    setMintTxHash("");
+
+    try {
+      const accounts = await okx.request({ method: "eth_requestAccounts" });
+      const address = accounts?.[0] || "";
+      setWalletAddress(address);
+
+      try {
+        await okx.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: X_LAYER_TESTNET.chainId }],
+        });
+      } catch (switchErr) {
+        if (switchErr && (switchErr.code === 4902 || switchErr.code === -32603)) {
+          await okx.request({
+            method: "wallet_addEthereumChain",
+            params: [X_LAYER_TESTNET],
+          });
+        } else {
+          throw switchErr;
+        }
+      }
+
+      const provider = new BrowserProvider(okx);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({
+        to: STAKE_TO_ADDRESS,
+        value: parseEther("0.0001"),
+      });
+      setMintTxHash(tx.hash);
+
       setDeployed(true);
-      setTimeout(() => onDeploy({ name, nation: selectedNation }), 1800);
-    }, 2200);
+      setTimeout(
+        () => onDeploy({ name, nation: selectedNation, walletAddress: address, mintTxHash: tx.hash }),
+        1800,
+      );
+    } catch (err) {
+      setDeployError(err?.shortMessage || err?.message || "Mint failed");
+      setDeploying(false);
+    }
   };
 
   return (
@@ -295,16 +347,33 @@ function DeployScreen({ onDeploy }) {
                 disabled={!name || deploying}
                 style={{ flex: 1, background: name && !deploying ? "#00FF87" : "rgba(255,255,255,0.05)", color: name && !deploying ? "#000" : "rgba(255,255,255,0.2)", border: "none", borderRadius: "4px", padding: "1rem", fontFamily: "'Anton', sans-serif", fontSize: "1rem", letterSpacing: "0.1em", textTransform: "uppercase", cursor: name && !deploying ? "pointer" : "not-allowed", transition: "all 0.2s", boxShadow: name && !deploying ? "0 0 20px rgba(0,255,135,0.3)" : "none" }}
               >
-                {deploying ? (deployed ? "✓ Deployed!" : "Deploying...") : "Deploy Gaffer ⚡"}
+                {deploying
+                  ? deployed
+                    ? "✓ Deployed!"
+                    : "Deploying..."
+                  : walletInstalled
+                  ? "Deploy Gaffer ⚡"
+                  : "Install OKX Wallet ↗"}
               </button>
             </div>
+
+            {deployError && (
+              <div style={{ marginTop: "1rem", fontFamily: "'Space Mono', monospace", fontSize: "0.65rem", color: "#FF4444", letterSpacing: "0.05em", textAlign: "center", wordBreak: "break-word" }}>
+                {deployError}
+              </div>
+            )}
 
             {deploying && (
               <div style={{ marginTop: "1.5rem", animation: "fadeIn 0.3s ease" }}>
                 <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.6rem", color: "rgba(255,255,255,0.3)", letterSpacing: "0.1em", marginBottom: "0.5rem" }}>
                   {deployed ? "✓ MINTED ON X LAYER" : "⟳ MINTING ON X LAYER..."}
                 </div>
-                <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.55rem", color: "#00FF87", opacity: 0.6, wordBreak: "break-all" }}>{hash}</div>
+                <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.55rem", color: "#00FF87", opacity: 0.6, wordBreak: "break-all" }}>{walletAddress || "Awaiting wallet..."}</div>
+                {mintTxHash && (
+                  <div style={{ fontFamily: "'Space Mono', monospace", fontSize: "0.5rem", color: "rgba(255,255,255,0.35)", opacity: 0.7, wordBreak: "break-all", marginTop: "0.4rem" }}>
+                    TX: {mintTxHash}
+                  </div>
+                )}
                 <div style={{ marginTop: "0.75rem", height: "3px", background: "rgba(255,255,255,0.05)", borderRadius: "2px", overflow: "hidden" }}>
                   <div style={{ height: "100%", background: "linear-gradient(90deg, #00FF87, #FFD700)", borderRadius: "2px", width: deployed ? "100%" : "60%", transition: "width 0.8s ease" }} />
                 </div>

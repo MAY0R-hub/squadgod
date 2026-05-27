@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+export const config = { maxDuration: 30 };
+
 const NATION_STARS = {
   Brazil:    ["Vinicius", "Rodrygo", "Endrick"],
   Argentina: ["Messi", "Julián Álvarez", "Mac Allister"],
@@ -40,26 +42,24 @@ async function callAnthropic(client, params, timeoutMs) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    res.setHeader("Allow", "GET");
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { gafferName = "The Gaffer", nationName = "the nation", tactic = "4-3-3", won = "false" } = req.query || {};
-  const didWin = won === "true";
+  const src = req.method === "GET"
+    ? (req.query || {})
+    : (typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {});
+  const { gafferName = "The Gaffer", nationName = "the nation", tactic = "4-3-3", won = "false" } = src;
+  const didWin = won === true || won === "true";
   const stars = (NATION_STARS[nationName] ?? ["the captain", "the striker", "the winger"]).join(", ");
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Cache-Control", "no-store");
 
-  const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(200).json({ events: buildFallbackCommentary(nationName, tactic, gafferName, didWin), source: "fallback" });
+  }
 
-  res.write(": connected\n\n");
-
-  let events = [];
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const message = await callAnthropic(client, {
@@ -78,21 +78,17 @@ Return ONLY a JSON array of exactly 7 match events. No markdown, no backticks. E
 Build tension toward the ${didWin ? "winning" : "losing"} result. Last event must be minute 90, type "final".`,
         },
       ],
-    }, 5000);
+    }, 20000);
 
-    const raw = message.content[0].type === "text" ? message.content[0].text.trim() : "[]";
+    const raw = message.content?.[0]?.type === "text" ? message.content[0].text.trim() : "[]";
     const jsonMatch = raw.match(/\[[\s\S]*\]/);
     const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
-    events = Array.isArray(parsed) && parsed.length >= 5 ? parsed : buildFallbackCommentary(nationName, tactic, gafferName, didWin);
-  } catch {
-    events = buildFallbackCommentary(nationName, tactic, gafferName, didWin);
+    if (Array.isArray(parsed) && parsed.length >= 5) {
+      return res.status(200).json({ events: parsed, source: "ai" });
+    }
+    return res.status(200).json({ events: buildFallbackCommentary(nationName, tactic, gafferName, didWin), source: "fallback" });
+  } catch (err) {
+    console.warn("Anthropic /commentary failed, using fallback:", err?.message || err);
+    return res.status(200).json({ events: buildFallbackCommentary(nationName, tactic, gafferName, didWin), source: "fallback" });
   }
-
-  for (const event of events) {
-    await delay(2200);
-    send(event);
-  }
-  await delay(1500);
-  send({ done: true });
-  res.end();
 }

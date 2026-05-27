@@ -8,12 +8,34 @@
   },
   "functions": {
     "api/*.js": {
-      "runtime": "@vercel/node@5.1.6"
+      "runtime": "@vercel/node@5.1.6",
+      "maxDuration": 30
     }
   },
-  "rewrites": [
-    { "source": "/api/gaffer", "destination": "/api/gaffer" },
-    { "source": "/api/commentary", "destination": "/api/commentary" },
-    { "source": "/api/matches", "destination": "/api/matches" }
+  "headers": [
+    {
+      "source": "/",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    }
   ]
 }

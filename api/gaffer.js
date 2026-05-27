@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 
+export const config = { maxDuration: 30 };
+
 const TACTICS = ["4-3-3", "4-4-2", "3-5-2", "4-2-3-1", "5-3-2", "3-4-3"];
 
 const TRASH_TALKS = [
@@ -37,6 +39,17 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: `formation is required and must be one of: ${TACTICS.join(", ")}` });
   }
 
+  res.setHeader("Cache-Control", "no-store");
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return res.status(200).json({
+      tactic: formation,
+      taunt: TRASH_TALKS[Math.floor(Math.random() * TRASH_TALKS.length)],
+      stakeAmt: String((Math.random() * 40 + 10).toFixed(1)),
+      tacticReason: "Classic formation, maximum control.",
+    });
+  }
+
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const message = await callAnthropic(client, {
@@ -60,7 +73,7 @@ Respond ONLY with a JSON object, no markdown, no backticks:
 }`,
         },
       ],
-    }, 8000);
+    }, 20000);
 
     const text = message.content[0].type === "text" ? message.content[0].text : "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);

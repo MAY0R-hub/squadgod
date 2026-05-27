@@ -1,5 +1,7 @@
 import pg from "pg";
 
+export const config = { maxDuration: 30 };
+
 let pool;
 function getPool() {
   if (!pool) {

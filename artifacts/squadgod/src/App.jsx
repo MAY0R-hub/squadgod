@@ -13,7 +13,37 @@ const STAKE_AMOUNT_OKB = "0.001";
 
 function getOkxProvider() {
   if (typeof window === "undefined") return null;
-  return window.okxwallet || (window.ethereum && window.ethereum.isOkxWallet ? window.ethereum : null);
+  if (window.okxwallet) return window.okxwallet;
+  if (window.ethereum?.isOkxWallet) return window.ethereum;
+  if (window.ethereum?.providers?.length) {
+    const okx = window.ethereum.providers.find((p) => p?.isOkxWallet);
+    if (okx) return okx;
+  }
+  if (window.ethereum) return window.ethereum;
+  return null;
+}
+
+function useWalletDetection() {
+  const [installed, setInstalled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => !cancelled && setInstalled(!!getOkxProvider());
+    check();
+    const id = setInterval(check, 300);
+    const stop = setTimeout(() => clearInterval(id), 4000);
+    const onLoad = () => check();
+    const onEth = () => check();
+    window.addEventListener("load", onLoad);
+    window.addEventListener("ethereum#initialized", onEth, { once: true });
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      clearTimeout(stop);
+      window.removeEventListener("load", onLoad);
+      window.removeEventListener("ethereum#initialized", onEth);
+    };
+  }, []);
+  return installed;
 }
 
 const NATIONS = [
@@ -200,14 +230,10 @@ function DeployScreen({ onDeploy }) {
   const [step, setStep] = useState(1);
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
-  const [walletInstalled, setWalletInstalled] = useState(false);
+  const walletInstalled = useWalletDetection();
   const [walletAddress, setWalletAddress] = useState("");
   const [mintTxHash, setMintTxHash] = useState("");
   const [deployError, setDeployError] = useState("");
-
-  useEffect(() => {
-    setWalletInstalled(!!getOkxProvider());
-  }, []);
 
   const handleDeploy = async () => {
     if (!name || !selectedNation) return;
@@ -429,12 +455,8 @@ function WarRoom({ gaffer, onStake }) {
     }
   };
 
-  const [walletInstalled, setWalletInstalled] = useState(false);
+  const walletInstalled = useWalletDetection();
   const [stakeError, setStakeError] = useState("");
-
-  useEffect(() => {
-    setWalletInstalled(!!getOkxProvider());
-  }, []);
 
   const handleStake = async () => {
     const okx = getOkxProvider();
@@ -620,36 +642,69 @@ function CommentaryScreen({ match, won, onDone }) {
     });
 
     let cancelled = false;
+    const timers = [];
+    const NATION_STARS = {
+      Brazil: ["Vinicius","Rodrygo","Endrick"], Argentina:["Messi","Julián Álvarez","Mac Allister"],
+      France:["Mbappé","Camavinga","Tchouaméni"], Germany:["Wirtz","Musiala","Kimmich"],
+      Spain:["Yamal","Pedri","Morata"], England:["Bellingham","Saka","Palmer"],
+      Portugal:["Cristiano","Bruno","Rúben Dias"], Nigeria:["Osimhen","Lookman","Iwobi"],
+      Japan:["Kubo","Mitoma","Ueda"], Mexico:["Lozano","Lainez","Rafa Márquez"],
+      USA:["Pulisic","Reyna","Adams"], Morocco:["Hakimi","En-Nesyri","Ounahi"],
+    };
+    const buildFallback = () => {
+      const stars = NATION_STARS[match.gaffer.nation.name] ?? ["the captain","the striker","the winger"];
+      const [s1,s2,s3] = stars;
+      const n = match.gaffer.nation.name, g = match.gaffer.name, t = match.tactic;
+      return [
+        { minute: 1,  type:"kickoff",  text:`Kick off! ${g}'s ${n} set up in ${t}.` },
+        { minute:14,  type:"pressure", text:`${n}'s ${t} suffocating the midfield — high press is working.` },
+        { minute:31,  type:"chance",   text:`${s1} drives forward. ${g}'s instructions paying off!` },
+        { minute:45,  type:"whistle",  text:`Half time. ${n} ${won?"in control":"hanging on"}. The gaffer paces the tunnel.` },
+        { minute:57,  type:"pressure", text:`${s2} pressing relentlessly second half. No let-up from ${n}.` },
+        { minute:76,  type:"chance",   text:`${s3} finds space! ${n} ${won?"pushing for the winner":"chasing the equaliser"}.` },
+        { minute:90,  type:"final",    text:`FULL TIME. ${n} ${won?"WIN":"LOSE"}. Receipts onchain forever.` },
+      ];
+    };
 
-    fetch(`/api/commentary?${params}`)
-      .then(res => {
-        setStatus("streaming");
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
+    const playEvents = (evts) => {
+      if (cancelled) return;
+      setStatus("streaming");
+      evts.forEach((ev, i) => {
+        const t = setTimeout(() => {
+          if (cancelled) return;
+          setEvents((prev) => [...prev, ev]);
+        }, (i + 1) * 1800);
+        timers.push(t);
+      });
+      const doneTimer = setTimeout(() => { if (!cancelled) onDone(); }, evts.length * 1800 + 1800);
+      timers.push(doneTimer);
+    };
 
-        const pump = async () => {
-          while (!cancelled) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop();
-            for (const line of lines) {
-              if (!line.startsWith("data: ")) continue;
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.done) { if (!cancelled) onDone(); }
-                else setEvents(prev => [...prev, data]);
-              } catch {}
-            }
-          }
-        };
-        return pump();
+    // 12s hard cap — if backend hasn't responded, play local fallback so screen never hangs.
+    const safety = setTimeout(() => {
+      if (cancelled) return;
+      playEvents(buildFallback());
+    }, 12000);
+    timers.push(safety);
+
+    fetch(`/api/commentary?${params}`, { headers: { "Accept": "application/json" }, cache: "no-store" })
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error("bad status")))
+      .then((data) => {
+        if (cancelled) return;
+        clearTimeout(safety);
+        const evts = Array.isArray(data?.events) && data.events.length >= 5 ? data.events : buildFallback();
+        playEvents(evts);
       })
-      .catch(() => { if (!cancelled) onDone(); });
+      .catch(() => {
+        if (cancelled) return;
+        clearTimeout(safety);
+        playEvents(buildFallback());
+      });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      timers.forEach(clearTimeout);
+    };
   }, []);
 
   return (

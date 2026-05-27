@@ -386,6 +386,14 @@ function DeployScreen({ onDeploy }) {
   );
 }
 
+function parseStakeFromPrompt(p) {
+  if (!p) return null;
+  const m =
+    p.match(/stake\s+(\d+(?:\.\d+)?)\s*okb?/i) ||
+    p.match(/(\d+(?:\.\d+)?)\s*okb\b/i);
+  return m ? m[1] : null;
+}
+
 function WarRoom({ gaffer, onStake }) {
   const [prompt, setPrompt] = useState("");
   const [formation, setFormation] = useState(TACTICS[0]);
@@ -398,6 +406,7 @@ function WarRoom({ gaffer, onStake }) {
     if (!prompt.trim()) return;
     setThinking(true);
     setOutput(null);
+    const userStake = parseStakeFromPrompt(prompt);
     try {
       const res = await fetch("/api/gaffer", {
         method: "POST",
@@ -411,10 +420,10 @@ function WarRoom({ gaffer, onStake }) {
       });
       if (!res.ok) throw new Error("API error");
       const data = await res.json();
-      setOutput(data);
+      setOutput({ ...data, stakeAmt: userStake ?? data.stakeAmt });
     } catch {
       const taunt = TRASH_TALKS[Math.floor(Math.random() * TRASH_TALKS.length)];
-      setOutput({ tactic: formation, taunt, stakeAmt: "25.0", tacticReason: "Classic formation, maximum control." });
+      setOutput({ tactic: formation, taunt, stakeAmt: userStake ?? "25.0", tacticReason: "Classic formation, maximum control." });
     } finally {
       setThinking(false);
     }

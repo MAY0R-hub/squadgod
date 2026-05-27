@@ -19,7 +19,7 @@ run = "pnpm --filter @workspace/squadgod run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/squadgod", "run", "build" ]
-publicDir = "artifacts/squadgod/dist/public"
+publicDir = "dist/public"
 serve = "static"
 
 [[services.production.rewrites]]

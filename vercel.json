@@ -1,6 +1,6 @@
 {
   "buildCommand": "pnpm --filter @workspace/squadgod run build",
-  "outputDirectory": "artifacts/squadgod/dist/public",
+  "outputDirectory": "dist/public",
   "installCommand": "pnpm install --frozen-lockfile",
   "framework": null,
   "env": {

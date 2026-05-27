@@ -1,11 +1,8 @@
 {
-  "buildCommand": "pnpm --filter @workspace/squadgod run build",
+  "buildCommand": "vite build",
   "outputDirectory": "dist/public",
-  "installCommand": "pnpm install --frozen-lockfile",
+  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
   "framework": null,
-  "env": {
-    "BASE_PATH": "/"
-  },
   "functions": {
     "api/*.js": {
       "runtime": "@vercel/node@5.1.6",
